@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
-class AuthTextField extends StatefulWidget {
+class AuthTextField extends StatelessWidget {
   final TextEditingController controller;
   final String label;
   final IconData icon;
@@ -20,48 +20,17 @@ class AuthTextField extends StatefulWidget {
   });
 
   @override
-  State<AuthTextField> createState() => _AuthTextFieldState();
-}
-
-class _AuthTextFieldState extends State<AuthTextField> {
-  bool _obscureText = true;
-
-  @override
   Widget build(BuildContext context) {
     return TextFormField(
-      controller: widget.controller,
-      obscureText: widget.isPassword && _obscureText,
-      keyboardType: widget.keyboardType,
-      validator: widget.validator,
+      controller: controller,
+      obscureText: isPassword,
+      keyboardType: keyboardType,
       decoration: InputDecoration(
-        labelText: widget.label,
-        prefixIcon: Icon(widget.icon),
-        suffixIcon:
-            widget.isPassword
-                ? IconButton(
-                  icon: Icon(
-                    _obscureText ? Icons.visibility_off : Icons.visibility,
-                  ),
-                  onPressed: () {
-                    setState(() {
-                      _obscureText = !_obscureText;
-                    });
-                  },
-                )
-                : null,
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12.r)),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12.r),
-          borderSide: BorderSide(color: Colors.grey[300]!),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12.r),
-          borderSide: BorderSide(
-            color: Theme.of(context).primaryColor,
-            width: 2,
-          ),
-        ),
+        labelText: label,
+        prefixIcon: Icon(icon),
+        border: const OutlineInputBorder(),
       ),
+      validator: validator,
     );
   }
 }
