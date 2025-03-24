@@ -61,20 +61,41 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
           final userId = doc.id;
           final userData = doc.data();
 
-          // Create a simplified AppUser model
-          users.add(
-            app_model.AppUser(
-              uid: userId,
-              email: userData['email'] ?? '',
-              displayName: userData['displayName'] ?? 'User',
-              phoneNumber: userData['phoneNumber'] ?? '',
-              isAnonymous: userData['isAnonymous'] ?? false,
-              isAdmin: userData['isAdmin'] ?? false,
-              isGuest: userData['isGuest'] ?? false,
-            ),
+          // Get timestamp strings for UI display
+          String createdAtStr = 'Unknown';
+          String lastLoginStr = 'Unknown';
+
+          if (userData['createdAt'] is Timestamp) {
+            createdAtStr = _dateFormat
+                .format((userData['createdAt'] as Timestamp).toDate());
+          }
+
+          if (userData['lastLoginAt'] is Timestamp) {
+            lastLoginStr = _dateFormat
+                .format((userData['lastLoginAt'] as Timestamp).toDate());
+          }
+
+          // Create a simplified AppUser model with additional fields for display
+          final user = app_model.AppUser(
+            uid: userId,
+            email: userData['email'] ?? '',
+            displayName: userData['displayName'] ?? 'User',
+            phoneNumber: userData['phoneNumber'] ?? '',
+            isAnonymous: userData['isAnonymous'] ?? false,
+            isAdmin: userData['isAdmin'] ?? false,
+            isGuest: userData['isGuest'] ?? false,
           );
+
+          // Store the formatted dates in the user metadata
+          user.metadata = {
+            'createdAtFormatted': createdAtStr,
+            'lastLoginFormatted': lastLoginStr,
+          };
+
+          users.add(user);
         } catch (e) {
           // Silent error handling for parsing user data
+          print('Error parsing user data: $e');
         }
       }
 
@@ -199,17 +220,9 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
       0.8,
     ).toColor();
 
-    // Format created date if available
-    final createdAtTimestamp = user.toMap()['createdAt'] as Timestamp?;
-    final createdAt = createdAtTimestamp != null
-        ? _dateFormat.format(createdAtTimestamp.toDate())
-        : 'Unknown';
-
-    // Format last login date if available
-    final lastLoginTimestamp = user.toMap()['lastLoginAt'] as Timestamp?;
-    final lastLogin = lastLoginTimestamp != null
-        ? _dateFormat.format(lastLoginTimestamp.toDate())
-        : 'Unknown';
+    // Get formatted timestamps from user metadata
+    final createdAt = user.metadata['createdAtFormatted'] ?? 'Unknown';
+    final lastLogin = user.metadata['lastLoginFormatted'] ?? 'Unknown';
 
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),

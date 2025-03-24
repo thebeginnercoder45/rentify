@@ -1,0 +1,12 @@
+This directory contains car images for offline mode.
+
+Default car images should be placed here with the following filenames:
+- mahindra_scorpio.jpg
+- suzuki_swift.jpg 
+- tata_nexon.jpg
+- toyota_fortuner.jpg
+- bmw_x5.jpg
+- tesla_model3.jpg
+- honda_city.jpg
+
+The app will look for these images when online images are not available. 

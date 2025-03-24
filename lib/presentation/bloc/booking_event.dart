@@ -162,3 +162,21 @@ class FetchFilteredBookings extends BookingEvent {
   @override
   int get hashCode => Object.hash(userId, status, startDate, endDate);
 }
+
+class LoadBookings extends BookingEvent {
+  final String? userId;
+
+  const LoadBookings({this.userId});
+
+  @override
+  List<Object?> get props => [userId];
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is LoadBookings && other.userId == userId;
+  }
+
+  @override
+  int get hashCode => userId.hashCode;
+}

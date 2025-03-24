@@ -16,6 +16,7 @@ import 'package:rentapp/presentation/pages/my_bookings_screen.dart';
 import 'package:rentapp/presentation/pages/profile/profile_page.dart';
 import 'package:rentapp/presentation/widgets/bottom_navigation.dart';
 import 'package:rentapp/presentation/pages/admin/admin_dashboard.dart';
+import 'package:rentapp/utils/notification_service.dart';
 
 class CarListScreen extends StatefulWidget {
   const CarListScreen({Key? key}) : super(key: key);
@@ -62,16 +63,13 @@ class _CarListScreenState extends State<CarListScreen> {
     super.dispose();
   }
 
-  void _onNavigationTap(int index) {
-    if (index == _currentNavIndex) return;
-
-    setState(() {
-      _currentNavIndex = index;
-    });
+  void _onNavItemTapped(int index) {
+    if (_currentNavIndex == index) return;
 
     switch (index) {
       case 0:
-        // We're already on the home/cars screen
+        // Home - Already in home, do nothing
+        setState(() => _currentNavIndex = 0);
         break;
       case 1:
         // Navigate to My Bookings
@@ -81,8 +79,8 @@ class _CarListScreenState extends State<CarListScreen> {
         ).then((_) => setState(() => _currentNavIndex = 0));
         break;
       case 2:
-        // Notifications - Show coming soon
-        _showComingSoonDialog('Notifications');
+        // Show notification test page with options
+        _showNotificationsDialog();
         setState(() => _currentNavIndex = 0);
         break;
       case 3:
@@ -95,16 +93,64 @@ class _CarListScreenState extends State<CarListScreen> {
     }
   }
 
-  void _showComingSoonDialog(String featureName) {
+  void _showNotificationsDialog() {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text(
-          'Coming Soon',
-          style: TextStyle(fontWeight: FontWeight.bold),
+        title: Row(
+          children: const [
+            Icon(Icons.notifications_active, color: primaryGold),
+            SizedBox(width: 8),
+            Text(
+              'Notifications',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ],
         ),
-        content: Text(
-          '$featureName feature will be available soon!',
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Test notification features:'),
+            const SizedBox(height: 20),
+            ElevatedButton.icon(
+              onPressed: () {
+                _sendWelcomeNotification();
+                Navigator.pop(context);
+              },
+              icon: const Icon(Icons.notifications),
+              label: const Text('Welcome Notification'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: primaryGold,
+                foregroundColor: Colors.black,
+              ),
+            ),
+            const SizedBox(height: 12),
+            ElevatedButton.icon(
+              onPressed: () {
+                _sendNewCarNotification();
+                Navigator.pop(context);
+              },
+              icon: const Icon(Icons.car_rental),
+              label: const Text('New Car Notification'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: primaryGold,
+                foregroundColor: Colors.black,
+              ),
+            ),
+            const SizedBox(height: 12),
+            ElevatedButton.icon(
+              onPressed: () {
+                _sendSpecialOfferNotification();
+                Navigator.pop(context);
+              },
+              icon: const Icon(Icons.local_offer),
+              label: const Text('Special Offer'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: primaryGold,
+                foregroundColor: Colors.black,
+              ),
+            ),
+          ],
         ),
         actions: [
           TextButton(
@@ -112,11 +158,86 @@ class _CarListScreenState extends State<CarListScreen> {
             style: TextButton.styleFrom(
               foregroundColor: primaryGold,
             ),
-            child: const Text('OK'),
+            child: const Text('Close'),
           ),
         ],
       ),
     );
+  }
+
+  Future<void> _sendWelcomeNotification() async {
+    try {
+      await NotificationService.instance.showNotification(
+        id: 1,
+        title: 'Welcome to RentApp!',
+        body: 'Thank you for choosing RentApp for your car rental needs.',
+      );
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Welcome notification sent!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      debugPrint('Error sending notification: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to send notification: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _sendNewCarNotification() async {
+    try {
+      await NotificationService.instance.showNotification(
+        id: 2,
+        title: 'New Cars Available',
+        body: 'Check out our newest luxury cars added to the fleet!',
+      );
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('New car notification sent!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      debugPrint('Error sending notification: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to send notification: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _sendSpecialOfferNotification() async {
+    try {
+      await NotificationService.instance.showNotification(
+        id: 3,
+        title: 'Special Weekend Offer!',
+        body: 'Get 15% off on all premium cars this weekend. Book now!',
+      );
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Special offer notification sent!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      debugPrint('Error sending notification: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to send notification: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   void _search() {
@@ -265,7 +386,7 @@ class _CarListScreenState extends State<CarListScreen> {
         ),
         bottomNavigationBar: BottomNavigation(
           currentIndex: _currentNavIndex,
-          onTap: _onNavigationTap,
+          onTap: _onNavItemTapped,
         ),
         floatingActionButton: Builder(
           builder: (context) {
@@ -787,22 +908,7 @@ class _CarListScreenState extends State<CarListScreen> {
               child: SizedBox(
                 width: 130,
                 height: double.infinity,
-                child: car.imageUrl != null
-                    ? FadeInImage.assetNetwork(
-                        placeholder: 'assets/car_placeholder.png',
-                        image: car.imageUrl!,
-                        fit: BoxFit.cover,
-                        imageErrorBuilder: (context, error, stackTrace) {
-                          return Image.asset(
-                            'assets/car_placeholder.png',
-                            fit: BoxFit.cover,
-                          );
-                        },
-                      )
-                    : Image.asset(
-                        'assets/car_placeholder.png',
-                        fit: BoxFit.cover,
-                      ),
+                child: _buildCarImage(car),
               ),
             ),
             // Car Details
@@ -912,6 +1018,86 @@ class _CarListScreenState extends State<CarListScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildCarImage(Car car) {
+    // Check if there is a valid image URL
+    if (car.imageUrl != null && car.imageUrl!.isNotEmpty) {
+      // Check if the URL is an asset path or a network URL
+      if (car.imageUrl!.startsWith('assets/')) {
+        // Load from assets
+        return Image.asset(
+          car.imageUrl!,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) {
+            print(
+                "Error loading asset image: $error for path: ${car.imageUrl}");
+            return _buildPlaceholderImage(car);
+          },
+        );
+      } else if (car.imageUrl!.startsWith('http')) {
+        // Load from network
+        return Image.network(
+          car.imageUrl!,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) {
+            print(
+                "Error loading network image: $error for URL: ${car.imageUrl}");
+            return _buildPlaceholderImage(car);
+          },
+          loadingBuilder: (context, child, loadingProgress) {
+            if (loadingProgress == null) return child;
+            return Center(
+              child: CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(primaryGold),
+                value: loadingProgress.expectedTotalBytes != null
+                    ? loadingProgress.cumulativeBytesLoaded /
+                        loadingProgress.expectedTotalBytes!
+                    : null,
+              ),
+            );
+          },
+        );
+      } else {
+        // Unknown format, try as asset first
+        return Image.asset(
+          car.imageUrl!,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) {
+            print("Error loading image: $error for path: ${car.imageUrl}");
+            return _buildPlaceholderImage(car);
+          },
+        );
+      }
+    } else {
+      // No image URL, display placeholder with car icon
+      return _buildPlaceholderImage(car);
+    }
+  }
+
+  Widget _buildPlaceholderImage(Car car) {
+    return Container(
+      color: Colors.grey[200],
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.directions_car,
+            size: 50,
+            color: Colors.grey[600],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '${car.brand} ${car.model}',
+            style: TextStyle(
+              fontSize: 12,
+              color: Colors.grey[700],
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ],
       ),
     );
   }

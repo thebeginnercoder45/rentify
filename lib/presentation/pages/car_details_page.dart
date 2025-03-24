@@ -72,86 +72,7 @@ class _CarDetailsPageState extends State<CarDetailsPage>
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Car Image with Gradient Overlay
-            Stack(
-              children: [
-                SizedBox(
-                  height: 300,
-                  width: double.infinity,
-                  child: widget.car.imageUrl != null
-                      ? Image.asset(
-                          widget.car.imageUrl!,
-                          fit: BoxFit.cover,
-                        )
-                      : Image.asset(
-                          'assets/car_image.png',
-                          fit: BoxFit.cover,
-                        ),
-                ),
-                Positioned(
-                  bottom: 0,
-                  left: 0,
-                  right: 0,
-                  child: Container(
-                    height: 80,
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          Colors.transparent,
-                          Colors.black.withOpacity(0.7),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-                Positioned(
-                  bottom: 20,
-                  left: 20,
-                  child: Row(
-                    children: [
-                      Container(
-                        padding:
-                            EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: accentColor,
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(Icons.star, color: Colors.white, size: 18),
-                            SizedBox(width: 4),
-                            Text(
-                              '${widget.car.rating}',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      SizedBox(width: 12),
-                      Container(
-                        padding:
-                            EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: primaryColor,
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(
-                          '₹${widget.car.pricePerHour}/hr',
-                          style: TextStyle(
-                            color: accentColor,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
+            _buildCarImageSection(),
 
             // Car Details Section
             Padding(
@@ -327,5 +248,158 @@ class _CarDetailsPageState extends State<CarDetailsPage>
         ),
       ),
     );
+  }
+
+  Widget _buildPlaceholderImage() {
+    return Container(
+      color: Colors.grey[200],
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.directions_car_outlined,
+            size: 80,
+            color: Colors.grey[400],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '${widget.car.brand} ${widget.car.model}',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: Colors.grey[600],
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCarImageSection() {
+    return Stack(
+      children: [
+        SizedBox(
+          height: 300,
+          width: double.infinity,
+          child: widget.car.imageUrl != null && widget.car.imageUrl!.isNotEmpty
+              ? _buildCarImage(widget.car.imageUrl!)
+              : _buildPlaceholderImage(),
+        ),
+        Positioned(
+          bottom: 0,
+          left: 0,
+          right: 0,
+          child: Container(
+            height: 80,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.transparent,
+                  Colors.black.withOpacity(0.7),
+                ],
+              ),
+            ),
+          ),
+        ),
+        Positioned(
+          bottom: 20,
+          left: 20,
+          child: Row(
+            children: [
+              Container(
+                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: accentColor,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.star, color: Colors.white, size: 18),
+                    SizedBox(width: 4),
+                    Text(
+                      '${widget.car.rating}',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              SizedBox(width: 12),
+              Container(
+                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: primaryColor,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  '₹${widget.car.pricePerHour}/hr',
+                  style: TextStyle(
+                    color: accentColor,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCarImage(String imageUrl) {
+    if (imageUrl.startsWith('assets/')) {
+      // Load from asset
+      return Image.asset(
+        imageUrl,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) {
+          print("Error loading asset image: $error");
+          return _buildPlaceholderImage();
+        },
+      );
+    } else if (imageUrl.startsWith('http')) {
+      // Load from network with caching for performance
+      return Image.network(
+        imageUrl,
+        fit: BoxFit.cover,
+        loadingBuilder: (context, child, loadingProgress) {
+          if (loadingProgress == null) return child;
+          return Center(
+            child: CircularProgressIndicator(
+              color: accentColor,
+              value: loadingProgress.expectedTotalBytes != null
+                  ? loadingProgress.cumulativeBytesLoaded /
+                      loadingProgress.expectedTotalBytes!
+                  : null,
+            ),
+          );
+        },
+        errorBuilder: (context, error, stackTrace) {
+          print("Error loading network image: $error");
+          return _buildPlaceholderImage();
+        },
+      );
+    } else {
+      // Unknown format, try asset first
+      return Image.asset(
+        imageUrl,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) {
+          // If asset fails, try as network image
+          return Image.network(
+            imageUrl,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) {
+              return _buildPlaceholderImage();
+            },
+          );
+        },
+      );
+    }
   }
 }

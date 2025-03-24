@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:rentapp/data/models/car.dart';
+import 'package:rentapp/data/models/activity_log.dart';
 
 /// Repository for managing car data in Firestore.
 class CarRepository {
@@ -74,10 +75,19 @@ class CarRepository {
   }
 
   /// Adds a new car to the database.
-  Future<String> addCar(Car car) async {
+  Future<String> addCar(Car car, {String? userId}) async {
     try {
       final docRef = await _carsRef.add(car.toJson());
-      return docRef.id;
+      final carId = docRef.id;
+
+      // Log activity
+      await ActivityLogger.logCarAdded(
+        carId,
+        car.name,
+        userId ?? 'system',
+      );
+
+      return carId;
     } catch (e) {
       debugPrint('Error adding car: $e');
       throw Exception('Failed to add car: $e');
@@ -85,9 +95,18 @@ class CarRepository {
   }
 
   /// Updates an existing car in the database.
-  Future<void> updateCar(Car car) async {
+  Future<void> updateCar(Car car, {String? userId}) async {
     try {
       await _carsRef.doc(car.id).update(car.toJson());
+
+      // Log car update activity
+      await ActivityLogger.seedActivityLog(
+        type: ActivityType.carUpdated,
+        title: 'Car Updated',
+        description: '${car.name} details were updated',
+        userId: userId ?? 'system',
+        relatedId: car.id,
+      );
     } catch (e) {
       debugPrint('Error updating car: $e');
       throw Exception('Failed to update car: $e');
@@ -95,9 +114,28 @@ class CarRepository {
   }
 
   /// Deletes a car from the database.
-  Future<void> deleteCar(String id) async {
+  Future<void> deleteCar(String id, {String? userId, String? carName}) async {
     try {
+      // Get car name before deleting if not provided
+      String nameForLog = carName ?? 'Car';
+      if (carName == null) {
+        final carDoc = await _carsRef.doc(id).get();
+        if (carDoc.exists) {
+          final data = carDoc.data() as Map<String, dynamic>;
+          nameForLog = data['name'] ?? 'Car';
+        }
+      }
+
       await _carsRef.doc(id).delete();
+
+      // Log car deletion activity
+      await ActivityLogger.seedActivityLog(
+        type: ActivityType.carDeleted,
+        title: 'Car Deleted',
+        description: '$nameForLog was removed from the fleet',
+        userId: userId ?? 'system',
+        relatedId: id,
+      );
     } catch (e) {
       debugPrint('Error deleting car: $e');
       throw Exception('Failed to delete car: $e');
@@ -230,7 +268,7 @@ class CarRepository {
           distance: 3.6,
           fuelCapacity: 68.0,
           rating: 4.9,
-          imageUrl: 'assets/cars/bmw_5.png',
+          imageUrl: 'assets/car_image.png', // Default image for BMW
           category: 'Luxury',
           description:
               'Luxury sedan with premium features and powerful engine.',
@@ -257,7 +295,7 @@ class CarRepository {
           distance: 4.1,
           fuelCapacity: 0.0,
           rating: 4.7,
-          imageUrl: 'assets/cars/tesla_model3.png',
+          imageUrl: 'assets/car_image.png', // Default image for Tesla
           category: 'Electric',
           description: 'Fully electric sedan with autopilot capabilities.',
           features: {
@@ -266,6 +304,35 @@ class CarRepository {
             'ac': true,
             'autopilot': true,
             'fastCharging': true,
+          },
+        ),
+        // Add Tata SA12 car that appears in screenshot
+        Car(
+          id: 'car7',
+          name: 'tata sa12',
+          brand: 'Mercedes',
+          model: 'S-Class',
+          fuelType: 'Petrol',
+          mileage: 10.0,
+          pricePerDay: 12000.0,
+          pricePerHour: 1250.0,
+          latitude: 12.9882,
+          longitude: 77.6194,
+          distance: 3.2,
+          fuelCapacity: 45.0,
+          rating: 4.5,
+          imageUrl: 'assets/car_image.png', // Default image for Tata
+          category: 'Luxury',
+          description:
+              'Luxury car with premium features and a powerful engine.',
+          features: {
+            'navigation': true,
+            'air_conditioning': true,
+            'bluetooth': true,
+            'sunroof': true,
+            'automatic': true,
+            'backup_camera': true,
+            'leather_seats': true,
           },
         ),
       ];

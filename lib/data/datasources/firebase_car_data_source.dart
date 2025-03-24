@@ -74,9 +74,38 @@ class FirebaseCarDataSource {
   /// Adds a new car to Firestore.
   Future<String> addCar(Car car) async {
     try {
-      final docRef =
-          await firestore.collection(collectionName).add(car.toJson());
-      return docRef.id;
+      debugPrint('Adding car to Firestore: ${car.id}');
+      debugPrint('Car image URL: ${car.imageUrl}');
+
+      // Create car data with proper timestamps
+      final carData = car.toFirestore();
+
+      // Add extra timestamps for new cars
+      if (!carData.containsKey('createdAt')) {
+        carData['createdAt'] = FieldValue.serverTimestamp();
+      }
+
+      // Double check image URL is included
+      debugPrint('Car data before saving: $carData');
+      debugPrint('Image URL in car data: ${carData['imageUrl']}');
+
+      // Ensure car ID is preserved if provided
+      String carId = car.id;
+
+      // Use the car's ID if provided, otherwise create a new document
+      if (car.id.isNotEmpty) {
+        await firestore.collection(collectionName).doc(car.id).set(carData);
+      } else {
+        final docRef = await firestore.collection(collectionName).add(carData);
+        carId = docRef.id;
+      }
+
+      // Verify car was saved with image URL
+      debugPrint('Car saved with ID: $carId');
+      final savedCar = await getCarById(carId);
+      debugPrint('Saved car image URL: ${savedCar?.imageUrl}');
+
+      return carId;
     } catch (e) {
       debugPrint('Error adding car: $e');
       throw Exception('Failed to add car: $e');

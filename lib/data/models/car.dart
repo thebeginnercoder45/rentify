@@ -56,6 +56,9 @@ class Car {
   /// Longitude of the car location
   final double longitude;
 
+  /// Search terms for easier filtering and searching
+  final List<String>? searchTerms;
+
   /// Creates a new [Car] instance.
   const Car({
     required this.id,
@@ -76,12 +79,26 @@ class Car {
     this.fuelCapacity = 45.0,
     this.latitude = 0.0,
     this.longitude = 0.0,
+    this.searchTerms,
   });
 
   /// Creates a [Car] from JSON data.
   /// Use fromFirestore instead for Firestore documents.
   @Deprecated('Use fromFirestore instead for Firestore documents')
   factory Car.fromJson(Map<String, dynamic> json) {
+    // Get the image URL or set to null
+    String? imageUrl = json['imageUrl'] as String?;
+
+    // Ensure imageUrl is properly formatted for assets
+    if (imageUrl != null &&
+        !imageUrl.startsWith('assets/') &&
+        !imageUrl.startsWith('http')) {
+      // Check if it's a path that needs 'assets/' prefix
+      if (imageUrl.startsWith('cars/')) {
+        imageUrl = 'assets/$imageUrl';
+      }
+    }
+
     return Car(
       id: json['id'] as String? ?? '',
       name: json['name'] as String? ?? 'Unknown Car',
@@ -92,7 +109,7 @@ class Car {
       pricePerDay: _parseDouble(json['pricePerDay']) ?? 0.0,
       pricePerHour: _parseDouble(json['pricePerHour']) ??
           (_parseDouble(json['pricePerDay']) ?? 0.0) / 24,
-      imageUrl: json['imageUrl'] as String?,
+      imageUrl: imageUrl,
       description: json['description'] as String? ?? 'No description available',
       features:
           json['features'] as Map<String, dynamic>? ?? <String, dynamic>{},
@@ -110,6 +127,7 @@ class Car {
   /// Use toFirestore instead for Firestore documents.
   @Deprecated('Use toFirestore instead for Firestore documents')
   Map<String, dynamic> toJson() {
+    // Use toFirestore instead to ensure consistency
     return toFirestore();
   }
 
@@ -133,6 +151,7 @@ class Car {
     double? fuelCapacity,
     double? latitude,
     double? longitude,
+    List<String>? searchTerms,
   }) {
     return Car(
       id: id ?? this.id,
@@ -153,6 +172,7 @@ class Car {
       fuelCapacity: fuelCapacity ?? this.fuelCapacity,
       latitude: latitude ?? this.latitude,
       longitude: longitude ?? this.longitude,
+      searchTerms: searchTerms ?? this.searchTerms,
     );
   }
 
@@ -171,7 +191,38 @@ class Car {
 
   /// Factory constructor to create a Car from Firestore document
   factory Car.fromFirestore(DocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>;
+    final data = doc.data() as Map<String, dynamic>? ?? {};
+
+    // Check if the document exists and has data
+    if (data.isEmpty) {
+      // Return a default car if document doesn't exist or is empty
+      return Car(
+        id: doc.id,
+        name: 'Unknown Car',
+        brand: 'Unknown Brand',
+        model: 'Unknown Model',
+        fuelType: 'Petrol',
+        mileage: 0.0,
+        pricePerDay: 0.0,
+        pricePerHour: 0.0,
+        description: 'No description available',
+        features: {},
+        category: 'Unknown',
+      );
+    }
+
+    // Get the image URL or set to null
+    String? imageUrl = data['imageUrl'] as String?;
+
+    // Ensure imageUrl is properly formatted
+    if (imageUrl != null &&
+        !imageUrl.startsWith('assets/') &&
+        !imageUrl.startsWith('http')) {
+      // Check if it's a path that needs 'assets/' prefix
+      if (imageUrl.startsWith('cars/')) {
+        imageUrl = 'assets/$imageUrl';
+      }
+    }
 
     // Calculate price per hour from price per day if needed
     final double pricePerDay = _parseDouble(data['pricePerDay']) ?? 0.0;
@@ -180,52 +231,134 @@ class Car {
       pricePerHour = pricePerDay / 24;
     }
 
+    // Ensure features is properly handled as a Map
+    Map<String, dynamic> features = {};
+    if (data['features'] is Map) {
+      features = Map<String, dynamic>.from(data['features'] as Map);
+    }
+
+    // Handle searchTerms as a List
+    List<String>? searchTerms;
+    if (data['searchTerms'] is List) {
+      searchTerms = List<String>.from(
+          (data['searchTerms'] as List).map((item) => item.toString()));
+    }
+
+    // Create and return the Car object
     return Car(
       id: doc.id,
-      name: data['name'] ?? '',
-      brand: data['brand'] ?? '',
-      model: data['model'] ?? '',
-      fuelType: data['fuelType'] ?? 'Petrol',
+      name: data['name'] as String? ?? '',
+      brand: data['brand'] as String? ?? '',
+      model: data['model'] as String? ?? '',
+      fuelType: data['fuelType'] as String? ?? 'Petrol',
       mileage: _parseDouble(data['mileage']) ?? 0.0,
       pricePerDay: pricePerDay,
       pricePerHour: pricePerHour,
-      imageUrl: data['imageUrl'] as String?,
-      description: data['description'] ?? '',
-      features: data['features'] is Map
-          ? Map<String, dynamic>.from(data['features'] as Map)
-          : {},
-      category: data['category'] ?? 'Standard',
-      isAvailable: data['isAvailable'] ?? true,
+      imageUrl: imageUrl,
+      description: data['description'] as String? ?? '',
+      features: features,
+      category: data['category'] as String? ?? 'Standard',
+      isAvailable: data['isAvailable'] as bool? ?? true,
       rating: _parseDouble(data['rating']) ?? 4.5,
       distance: _parseDouble(data['distance']) ?? 3.2,
       fuelCapacity: _parseDouble(data['fuelCapacity']) ?? 45.0,
       latitude: _parseDouble(data['latitude']) ?? 0.0,
       longitude: _parseDouble(data['longitude']) ?? 0.0,
+      searchTerms: searchTerms,
     );
   }
 
   /// Convert Car to a Map for Firestore
   Map<String, dynamic> toFirestore() {
-    return {
-      'name': name,
-      'brand': brand,
-      'model': model,
+    // Generate search terms if not provided
+    final searchTerms = this.searchTerms ?? _generateSearchTerms();
+
+    // Create normalized map of car data
+    final Map<String, dynamic> data = {
+      'name': name.trim(),
+      'brand': brand.trim(),
+      'model': model.trim(),
       'fuelType': fuelType,
       'mileage': mileage,
       'pricePerDay': pricePerDay,
       'pricePerHour': pricePerHour,
-      'imageUrl': imageUrl,
-      'description': description,
+      'description': description.trim(),
       'features': features,
-      'category': category,
+      'category': category.trim(),
       'isAvailable': isAvailable,
       'rating': rating,
       'distance': distance,
       'fuelCapacity': fuelCapacity,
       'latitude': latitude,
       'longitude': longitude,
+      'searchTerms': searchTerms,
       'updatedAt': FieldValue.serverTimestamp(),
+      'lastUpdated': DateTime.now().millisecondsSinceEpoch,
     };
+
+    // Handle imageUrl specially to make sure it's not null in Firestore
+    if (imageUrl != null && imageUrl!.isNotEmpty) {
+      data['imageUrl'] = imageUrl;
+
+      // For local assets, store a flag to indicate it's an asset path
+      if (imageUrl!.startsWith('assets/')) {
+        data['isLocalAsset'] = true;
+      } else {
+        data['isLocalAsset'] = false;
+      }
+    } else {
+      // Default to a standard asset path if no image is provided
+      data['imageUrl'] = 'assets/car_image.png';
+      data['isLocalAsset'] = true;
+    }
+
+    return data;
+  }
+
+  // Generate search terms for better Firestore queries
+  List<String> _generateSearchTerms() {
+    final List<String> terms = [];
+
+    // Add name, brand, model, and category with their lowercase variants
+    if (name.isNotEmpty) {
+      terms.add(name.toLowerCase());
+      // Add individual words from name
+      terms.addAll(
+          name.toLowerCase().split(' ').where((term) => term.length > 2));
+    }
+
+    if (brand.isNotEmpty) {
+      terms.add(brand.toLowerCase());
+    }
+
+    if (model.isNotEmpty) {
+      terms.add(model.toLowerCase());
+      // Add individual words from model
+      terms.addAll(
+          model.toLowerCase().split(' ').where((term) => term.length > 2));
+    }
+
+    if (category.isNotEmpty) {
+      terms.add(category.toLowerCase());
+    }
+
+    // Add fuel type
+    terms.add(fuelType.toLowerCase());
+
+    // Price range indicators for searching
+    if (pricePerDay < 1000) terms.add('budget');
+    if (pricePerDay >= 1000 && pricePerDay < 2500) terms.add('standard');
+    if (pricePerDay >= 2500) terms.add('premium');
+
+    // Add feature-related terms
+    features.forEach((key, value) {
+      if (value == true) {
+        terms.add(key.toLowerCase());
+      }
+    });
+
+    // Remove duplicates and return
+    return terms.toSet().toList();
   }
 }
 

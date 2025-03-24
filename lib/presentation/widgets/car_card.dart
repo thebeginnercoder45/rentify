@@ -34,6 +34,29 @@ class CarCard extends StatelessWidget {
             Image.asset(
               car.imageUrl ?? 'assets/car_image.png',
               height: 120,
+              errorBuilder: (context, error, stackTrace) {
+                // If asset loading fails, try as network image
+                if (car.imageUrl != null && car.imageUrl!.startsWith('http')) {
+                  return Image.network(
+                    car.imageUrl!,
+                    height: 120,
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) {
+                      return Icon(
+                        Icons.directions_car,
+                        size: 60,
+                        color: Colors.grey[400],
+                      );
+                    },
+                  );
+                }
+                // Otherwise show placeholder
+                return Icon(
+                  Icons.directions_car,
+                  size: 60,
+                  color: Colors.grey[400],
+                );
+              },
             ),
             Text(
               '${car.brand} ${car.model}',

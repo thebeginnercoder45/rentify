@@ -9,6 +9,8 @@ class AppUser {
   final bool isAnonymous;
   final bool isAdmin;
   final bool isGuest;
+  // Map to store additional metadata that isn't part of the core model
+  Map<String, dynamic> metadata = {};
 
   AppUser({
     required this.uid,
@@ -18,7 +20,12 @@ class AppUser {
     required this.isAnonymous,
     required this.isAdmin,
     required this.isGuest,
-  });
+    Map<String, dynamic>? metadata,
+  }) {
+    if (metadata != null) {
+      this.metadata = metadata;
+    }
+  }
 
   // Convert user to a Map for Firestore
   Map<String, dynamic> toMap() {
@@ -69,6 +76,7 @@ class AppUser {
     bool? isAnonymous,
     bool? isAdmin,
     bool? isGuest,
+    Map<String, dynamic>? metadata,
   }) {
     return AppUser(
       uid: uid ?? this.uid,
@@ -78,6 +86,7 @@ class AppUser {
       isAnonymous: isAnonymous ?? this.isAnonymous,
       isAdmin: isAdmin ?? this.isAdmin,
       isGuest: isGuest ?? this.isGuest,
+      metadata: metadata ?? this.metadata,
     );
   }
 }

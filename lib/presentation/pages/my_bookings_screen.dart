@@ -11,6 +11,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:rentapp/presentation/pages/profile/profile_page.dart';
 import 'package:rentapp/presentation/widgets/bottom_navigation.dart';
 import 'package:rentapp/presentation/pages/booking_details_page.dart';
+import 'package:rentapp/utils/notification_service.dart';
 
 class MyBookingsScreen extends StatefulWidget {
   const MyBookingsScreen({Key? key}) : super(key: key);
@@ -70,14 +71,33 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
     User? user = FirebaseAuth.instance.currentUser;
 
     if (user != null) {
-      // Show loading state
-      context.read<BookingBloc>().add(FetchBookings(userId: user.uid));
+      try {
+        print("DEBUG: Loading bookings via Bloc - User: ${user.uid}");
+        // Show loading state
+        context.read<BookingBloc>().add(FetchBookings(userId: user.uid));
 
-      // Reset date filter when loading all bookings
-      setState(() {
-        _isDateFilterActive = false;
-        _dateFilterLabel = null;
-      });
+        // Reset date filter when loading all bookings
+        setState(() {
+          _isDateFilterActive = false;
+          _dateFilterLabel = null;
+        });
+
+        // Set a timeout to check if bookings loaded successfully
+        Future.delayed(Duration(seconds: 8), () {
+          if (mounted) {
+            final state = context.read<BookingBloc>().state;
+            if (state is BookingLoading || state is BookingError) {
+              print(
+                  "DEBUG: Bloc loading timed out, trying direct Firestore approach");
+              _loadBookingsDirectly();
+            }
+          }
+        });
+      } catch (e) {
+        print("ERROR: Initial booking load failed: $e");
+        // Try the direct approach as fallback
+        _loadBookingsDirectly();
+      }
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -89,6 +109,179 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
 
       // Navigate to login if needed
       Navigator.pop(context);
+    }
+  }
+
+  Future<void> _loadBookingsDirectly() async {
+    try {
+      User? user = FirebaseAuth.instance.currentUser;
+      if (user == null) return; // Not logged in
+
+      setState(() {
+        // Show loading UI directly
+        _filteredBookings = [];
+      });
+
+      print("DEBUG: Attempting direct Firestore booking fetch");
+
+      // First check if the bookings collection exists
+      var collectionRef = FirebaseFirestore.instance.collection('bookings');
+
+      // Try to fetch just one document from the collection to check if it exists
+      try {
+        var testQuery = await collectionRef.limit(1).get();
+        print(
+            "DEBUG: Bookings collection exists: ${testQuery.docs.isNotEmpty}");
+
+        // If collection is completely empty, try to create it with a test document
+        if (testQuery.docs.isEmpty) {
+          print(
+              "DEBUG: Bookings collection is empty - checking permissions with test document");
+          await _createTestBookingIfNeeded(user.uid);
+        }
+      } catch (e) {
+        print("DEBUG: Error checking collection existence: $e");
+        // Continue anyway to try the main query
+      }
+
+      // Try direct Firestore access, bypassing the Bloc
+      final querySnapshot = await FirebaseFirestore.instance
+          .collection('bookings')
+          .where('userId', isEqualTo: user.uid)
+          .orderBy('createdAt', descending: true)
+          .get()
+          .timeout(Duration(seconds: 15));
+
+      print("DEBUG: Direct fetch found ${querySnapshot.docs.length} bookings");
+
+      // Parse the bookings manually
+      List<Booking> bookings = [];
+      for (var doc in querySnapshot.docs) {
+        try {
+          final Map<String, dynamic> data = doc.data();
+          data['id'] = doc.id; // Ensure ID is included
+
+          final booking = Booking.fromJson(data);
+          bookings.add(booking);
+        } catch (e) {
+          print("DEBUG: Error parsing booking ${doc.id}: $e");
+        }
+      }
+
+      // Update state directly
+      setState(() {
+        _filteredBookings = bookings;
+      });
+
+      // Also update the Bloc state to keep it in sync
+      if (mounted) {
+        context.read<BookingBloc>().emit(BookingsLoaded(bookings));
+      }
+
+      print(
+          "DEBUG: Direct loading successful with ${bookings.length} bookings");
+    } catch (e) {
+      print("ERROR: Direct booking load failed: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not load bookings: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _createTestBookingIfNeeded(String userId) async {
+    try {
+      print("DEBUG: Attempting to create test booking for diagnostic purposes");
+
+      // Create a collection reference
+      final bookingsRef = FirebaseFirestore.instance.collection('bookings');
+
+      // Create a test booking document
+      Map<String, dynamic> bookingData = {
+        'userId': userId,
+        'carId': 'test_car_id',
+        'carName': 'Test Car',
+        'carModel': 'Diagnostic Vehicle',
+        'carImageUrl': 'assets/images/car_placeholder.png',
+        'startDate': Timestamp.fromDate(DateTime.now().add(Duration(days: 2))),
+        'endDate': Timestamp.fromDate(DateTime.now().add(Duration(days: 3))),
+        'totalPrice': 100.0,
+        'status': 'pending',
+        'createdAt': FieldValue.serverTimestamp(),
+      };
+
+      // Try to add the document
+      final docRef = await bookingsRef.add(bookingData);
+
+      print("DEBUG: Test booking created successfully with ID: ${docRef.id}");
+
+      // Clean up the test booking to avoid cluttering the database
+      // Comment this out if you want to keep the test booking for inspection
+      await docRef.delete();
+      print("DEBUG: Test booking deleted after successful creation test");
+    } catch (e) {
+      print("ERROR: Failed to create test booking: $e");
+
+      // Try to determine the specific error
+      String errorMessage = e.toString();
+      if (errorMessage.contains('permission-denied')) {
+        print(
+            "DEBUG: PERMISSION DENIED - Check Firestore rules for bookings collection");
+      } else if (errorMessage.contains('not-found')) {
+        print(
+            "DEBUG: COLLECTION NOT FOUND - Check if bookings collection exists");
+      } else {
+        print("DEBUG: Unknown error creating test booking: $errorMessage");
+      }
+    }
+  }
+
+  Future<void> _retryLoadBookings() async {
+    try {
+      // Show loading indicator
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                  )),
+              SizedBox(width: 10),
+              Text('Reconnecting to server...'),
+            ],
+          ),
+          duration: Duration(seconds: 2),
+        ),
+      );
+
+      // Reset state for a fresh start
+      setState(() {
+        _selectedStatusFilter = 'All';
+        _isDateFilterActive = false;
+        _dateFilterLabel = null;
+      });
+
+      // Use the direct approach for better reliability
+      await _loadBookingsDirectly();
+    } catch (e) {
+      print("ERROR in retry: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content:
+                Text('Network error. Check your connection and try again.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
@@ -371,123 +564,111 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return BlocConsumer<BookingBloc, BookingState>(
-      listener: (context, state) {
-        if (state is BookingsLoaded) {
-          _filterBookings(state.bookings);
-          // Show refresh success message, but only if not initial load
-          if (state is! BookingInitial) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Bookings refreshed successfully'),
-                backgroundColor: Colors.green,
-                duration: Duration(seconds: 1),
-              ),
-            );
+    return Scaffold(
+      backgroundColor: Colors.grey[100],
+      appBar: AppBar(
+        elevation: 0,
+        backgroundColor: primaryBlack,
+        title: Text(
+          'My Bookings',
+          style: GoogleFonts.poppins(
+            textStyle: const TextStyle(
+              color: primaryGold,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+        centerTitle: true,
+        leading: Navigator.canPop(context)
+            ? IconButton(
+                icon: const Icon(Icons.arrow_back, color: primaryGold),
+                onPressed: () => Navigator.pop(context),
+              )
+            : null,
+        automaticallyImplyLeading: false,
+        actions: [
+          // Filter icon
+          IconButton(
+            icon: const Icon(Icons.filter_list, color: primaryGold),
+            onPressed: _showSortFilterOptions,
+            tooltip: 'Sort & Filter',
+          ),
+          // Date range filter
+          IconButton(
+            icon: const Icon(Icons.date_range, color: primaryGold),
+            onPressed: _showDateRangeFilterDialog,
+            tooltip: 'Date Filter',
+          ),
+          // Refresh button
+          IconButton(
+            icon: const Icon(Icons.refresh, color: primaryGold),
+            onPressed: _retryLoadBookings,
+            tooltip: 'Refresh',
+          ),
+        ],
+      ),
+      body: BlocBuilder<BookingBloc, BookingState>(
+        builder: (context, state) {
+          if (state is BookingInitial) {
+            // If user is logged in, get their bookings
+            final user = FirebaseAuth.instance.currentUser;
+            if (user != null) {
+              context.read<BookingBloc>().add(FetchBookings(userId: user.uid));
+            } else {
+              // Handle not logged in state
+              return Center(child: Text('Please log in to view your bookings'));
+            }
+            return Center(child: CircularProgressIndicator());
+          } else if (state is BookingLoading) {
+            return Center(child: CircularProgressIndicator());
+          } else if (state is BookingsLoaded) {
+            final bookings = state.bookings;
+            if (bookings.isEmpty) {
+              return _buildEmptyState();
+            }
+            return _buildBookingsList(bookings);
+          } else if (state is BookingError) {
+            return _buildErrorState(state.message, context);
           }
-        } else if (state is BookingError) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Error: ${state.message}'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      },
-      builder: (context, state) {
-        return Scaffold(
-          backgroundColor: Colors.grey[100],
-          appBar: AppBar(
-            elevation: 0,
-            backgroundColor: primaryBlack,
-            title: Text(
-              'My Bookings',
-              style: GoogleFonts.poppins(
-                textStyle: const TextStyle(
-                  color: primaryGold,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-            centerTitle: true,
-            leading: Navigator.canPop(context)
-                ? IconButton(
-                    icon: const Icon(Icons.arrow_back, color: primaryGold),
-                    onPressed: () => Navigator.pop(context),
-                  )
-                : null,
-            automaticallyImplyLeading: false,
-            actions: [
-              // Filter icon
-              IconButton(
-                icon: const Icon(Icons.filter_list, color: primaryGold),
-                onPressed: _showSortFilterOptions,
-                tooltip: 'Sort & Filter',
-              ),
-              // Date range filter
-              IconButton(
-                icon: const Icon(Icons.date_range, color: primaryGold),
-                onPressed: _showDateRangeFilterDialog,
-                tooltip: 'Date Filter',
-              ),
-              // Refresh button
-              IconButton(
-                icon: const Icon(Icons.refresh, color: primaryGold),
-                onPressed: _loadBookings,
-                tooltip: 'Refresh',
-              ),
-            ],
-          ),
-          body: Column(
-            children: [
-              _buildHeader(),
-              _buildStatusFilter(),
-              Expanded(
-                child: _buildBookingContent(state),
-              ),
-            ],
-          ),
-          bottomNavigationBar: BottomNavigation(
-            currentIndex: _currentNavIndex,
-            onTap: _onNavigationTap,
-          ),
-        );
-      },
+          return Center(child: Text('Unknown state'));
+        },
+      ),
+      bottomNavigationBar: BottomNavigation(
+        currentIndex: _currentNavIndex,
+        onTap: _onNavigationTap,
+      ),
     );
   }
 
-  Widget _buildHeader() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-      decoration: const BoxDecoration(
-        color: primaryBlack,
-        borderRadius: BorderRadius.only(
-          bottomLeft: Radius.circular(30),
-          bottomRight: Radius.circular(30),
-        ),
-      ),
+  Widget _buildEmptyState() {
+    return Center(
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Text(
-            'Your car rental history',
-            style: GoogleFonts.poppins(
-              textStyle: const TextStyle(
-                color: Colors.white,
-                fontSize: 14,
-              ),
-            ),
+          Icon(
+            Icons.calendar_today_outlined,
+            size: 80,
+            color: Colors.grey[400],
           ),
-          const SizedBox(height: 4),
+          SizedBox(height: 16),
           Text(
-            'Manage Your Bookings',
-            style: GoogleFonts.poppins(
-              textStyle: const TextStyle(
-                color: primaryGold,
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-              ),
+            'No bookings yet',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          ),
+          SizedBox(height: 8),
+          Text(
+            'Your booking history will appear here',
+            style: TextStyle(color: Colors.grey[600]),
+          ),
+          SizedBox(height: 24),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.of(context).pushNamed('/explore');
+            },
+            child: Text('Browse Cars'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: primaryGold,
+              padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
             ),
           ),
         ],
@@ -495,227 +676,172 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
     );
   }
 
-  Widget _buildStatusFilter() {
-    return Column(
-      children: [
-        Container(
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
-              children: _statusFilters.map((status) {
-                final isSelected = _selectedStatusFilter == status;
-                return Padding(
-                  padding: const EdgeInsets.only(right: 10),
-                  child: FilterChip(
-                    selected: isSelected,
-                    label: Text(
-                      status,
-                      style: GoogleFonts.poppins(
-                        textStyle: TextStyle(
-                          fontSize: 13,
-                          fontWeight:
-                              isSelected ? FontWeight.w600 : FontWeight.normal,
-                          color: isSelected ? primaryBlack : Colors.grey[600],
-                        ),
-                      ),
-                    ),
-                    backgroundColor: Colors.grey[200],
-                    selectedColor: primaryGold,
-                    showCheckmark: false,
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(30),
-                    ),
-                    onSelected: (selected) {
-                      setState(() {
-                        _selectedStatusFilter = status;
-                      });
-                      // Trigger filtering based on current state
-                      final state = context.read<BookingBloc>().state;
-                      if (state is BookingsLoaded) {
-                        _filterBookings(state.bookings);
-                      }
-                    },
-                  ),
-                );
-              }).toList(),
-            ),
+  Widget _buildErrorState(String message, BuildContext context) {
+    // Check if this is a Firestore index error based on the error message
+    final bool isIndexError = message.toLowerCase().contains('index') ||
+        message.toLowerCase().contains('database setup');
+
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            isIndexError ? Icons.storage : Icons.error_outline,
+            size: 80,
+            color: isIndexError ? Colors.orange[300] : Colors.red[300],
           ),
-        ),
-        if (_isDateFilterActive && _dateFilterLabel != null)
-          Container(
-            margin: const EdgeInsets.only(bottom: 16, left: 16, right: 16),
-            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
-            decoration: BoxDecoration(
-              color: lightGold.withOpacity(0.7),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: primaryGold.withOpacity(0.5), width: 1),
-            ),
-            child: Row(
+          SizedBox(height: 16),
+          Text(
+            isIndexError
+                ? 'Database Configuration Issue'
+                : 'Failed to load bookings',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          ),
+          SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 32.0),
+            child: Column(
               children: [
-                const Icon(
-                  Icons.date_range,
-                  color: primaryGold,
-                  size: 20,
+                Text(
+                  message,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.grey[700]),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    'Date range: $_dateFilterLabel',
-                    style: GoogleFonts.poppins(
-                      textStyle: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                        color: primaryBlack,
-                      ),
+                if (isIndexError)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Text(
+                      'The app needs additional database setup. Try using our direct booking approach instead.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                          color: Colors.grey[700], fontStyle: FontStyle.italic),
                     ),
                   ),
-                ),
-                IconButton(
-                  icon:
-                      const Icon(Icons.close, color: Colors.black54, size: 18),
-                  onPressed: _loadBookings,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                  tooltip: 'Clear date filter',
-                ),
               ],
             ),
           ),
-      ],
-    );
-  }
-
-  Widget _buildEmptyState() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.calendar_today_outlined,
-              size: 80,
-              color: Colors.grey[400],
-            ),
-            const SizedBox(height: 24),
-            Text(
-              'No Bookings Found',
-              style: GoogleFonts.poppins(
-                textStyle: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.grey[700],
+          SizedBox(height: 24),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              ElevatedButton(
+                onPressed: () {
+                  if (isIndexError) {
+                    // For index errors, try the direct approach which doesn't use complex queries
+                    _loadBookingsManually();
+                  } else {
+                    final user = FirebaseAuth.instance.currentUser;
+                    if (user != null) {
+                      context
+                          .read<BookingBloc>()
+                          .add(FetchBookings(userId: user.uid));
+                    }
+                  }
+                },
+                child: Text(isIndexError ? 'Try Alternative Method' : 'Retry'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: primaryGold,
+                  padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                 ),
               ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Your booking history is empty. Start by booking a car to see your reservations here.',
-              textAlign: TextAlign.center,
-              style: GoogleFonts.poppins(
-                textStyle: TextStyle(
-                  fontSize: 16,
-                  color: Colors.grey[600],
+              SizedBox(width: 16),
+              TextButton(
+                onPressed: () {
+                  Navigator.of(context).pushNamed('/explore');
+                },
+                child: Text('Browse Cars'),
+                style: TextButton.styleFrom(
+                  foregroundColor: primaryGold,
+                  padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                 ),
               ),
-            ),
-            const SizedBox(height: 32),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.pop(context);
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: primaryBlack,
-                foregroundColor: primaryGold,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-              child: const Text('Browse Cars'),
-            ),
-          ],
-        ),
+            ],
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildFilterEmptyState() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.filter_list,
-              size: 80,
-              color: Colors.grey[400],
-            ),
-            const SizedBox(height: 24),
-            Text(
-              'No ${_selectedStatusFilter} Bookings',
-              style: GoogleFonts.poppins(
-                textStyle: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.grey[700],
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'You don\'t have any bookings with the selected status',
-              textAlign: TextAlign.center,
-              style: GoogleFonts.poppins(
-                textStyle: TextStyle(
-                  fontSize: 16,
-                  color: Colors.grey[600],
-                ),
-              ),
-            ),
-            const SizedBox(height: 24),
-            OutlinedButton(
-              onPressed: () {
-                setState(() {
-                  _selectedStatusFilter = 'All';
-                });
-                final state = context.read<BookingBloc>().state;
-                if (state is BookingsLoaded) {
-                  _filterBookings(state.bookings);
-                }
-              },
-              style: OutlinedButton.styleFrom(
-                foregroundColor: primaryGold,
-                side: const BorderSide(color: primaryGold),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-              child: const Text('Show All Bookings'),
-            ),
-          ],
+  // Add a manual bookings load method that doesn't rely on complex queries
+  Future<void> _loadBookingsManually() async {
+    try {
+      // Show loading state
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2)),
+              SizedBox(width: 10),
+              Text('Trying alternative approach...'),
+            ],
+          ),
+          duration: Duration(seconds: 2),
         ),
-      ),
-    );
+      );
+
+      // Get the current user
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('You need to be logged in to view bookings')),
+        );
+        return;
+      }
+
+      // Use the simplest possible query
+      final snapshot = await FirebaseFirestore.instance
+          .collection('bookings')
+          .where('userId', isEqualTo: user.uid)
+          .get();
+
+      List<Booking> bookings = [];
+      for (var doc in snapshot.docs) {
+        try {
+          bookings.add(Booking.fromFirestore(doc));
+        } catch (e) {
+          print('Error parsing booking: $e');
+        }
+      }
+
+      // Sort manually
+      bookings.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
+      // Update the state directly
+      if (mounted) {
+        context.read<BookingBloc>().emit(BookingsLoaded(bookings));
+      }
+    } catch (e) {
+      print('Error in manual booking load: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content:
+                Text('Still unable to load bookings. Please try again later.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   Widget _buildBookingsList(List<Booking> bookings) {
     return RefreshIndicator(
-      color: primaryGold,
-      onRefresh: _loadBookings,
+      onRefresh: () async {
+        final user = FirebaseAuth.instance.currentUser;
+        if (user != null) {
+          context.read<BookingBloc>().add(FetchBookings(userId: user.uid));
+        }
+        // Wait for the refresh to complete
+        await Future.delayed(Duration(seconds: 2));
+      },
       child: ListView.builder(
-        padding: const EdgeInsets.all(16),
-        itemCount: _filteredBookings.length,
+        itemCount: bookings.length,
+        padding: EdgeInsets.all(16),
         itemBuilder: (context, index) {
-          final booking = _filteredBookings[index];
+          final booking = bookings[index];
           return _buildBookingCard(booking);
         },
       ),
@@ -759,7 +885,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
             ),
           ).then((_) {
             // Refresh the bookings list when returning from details page
-            _loadBookings();
+            _refreshBookings();
           });
         }
       },
@@ -780,24 +906,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
                     topLeft: Radius.circular(16),
                     topRight: Radius.circular(16),
                   ),
-                  child: Image.asset(
-                    booking.carImageUrl,
-                    height: 180,
-                    width: double.infinity,
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) {
-                      return Container(
-                        height: 180,
-                        width: double.infinity,
-                        color: Colors.grey[300],
-                        child: Icon(
-                          Icons.car_rental,
-                          size: 80,
-                          color: Colors.grey[400],
-                        ),
-                      );
-                    },
-                  ),
+                  child: _buildCarImage(booking),
                 ),
                 Positioned(
                   top: 16,
@@ -824,39 +933,10 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
                           style: const TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.bold,
-                            fontSize: 12,
+                            fontSize: 14,
                           ),
                         ),
                       ],
-                    ),
-                  ),
-                ),
-                // Add booking date info
-                Positioned(
-                  bottom: 0,
-                  left: 0,
-                  right: 0,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.bottomCenter,
-                        end: Alignment.topCenter,
-                        colors: [
-                          Colors.black.withOpacity(0.7),
-                          Colors.transparent,
-                        ],
-                      ),
-                    ),
-                    padding: const EdgeInsets.all(16),
-                    child: Text(
-                      booking.carModel,
-                      style: GoogleFonts.poppins(
-                        textStyle: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
                     ),
                   ),
                 ),
@@ -918,7 +998,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
                         ),
                         const SizedBox(width: 8),
                         ElevatedButton(
-                          onPressed: () => _showSetReminderDialog(booking),
+                          onPressed: () => _showReminderOptions(booking),
                           child: const Icon(Icons.notifications_active),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: primaryBlack,
@@ -958,6 +1038,78 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
         ),
       ),
     );
+  }
+
+  Widget _buildCarImage(Booking booking) {
+    // Default images for specific car models to ensure we show images even in offline mode
+    Map<String, String> defaultCarImages = {
+      'Mahindra Scorpio Classic': 'assets/images/cars/mahindra_scorpio.jpg',
+      'Maruti suzuki swift': 'assets/images/cars/suzuki_swift.jpg',
+      'Tata Nexon': 'assets/images/cars/tata_nexon.jpg',
+      'Toyota Fortuner': 'assets/images/cars/toyota_fortuner.jpg',
+      'BMW X5': 'assets/images/cars/bmw_x5.jpg',
+      'Tesla Model 3': 'assets/images/cars/tesla_model3.jpg',
+      'Honda City': 'assets/images/cars/honda_city.jpg',
+    };
+
+    // Check if URL starts with http/https (direct URL)
+    if (booking.carImageUrl.startsWith('http')) {
+      return Image.network(
+        booking.carImageUrl,
+        height: 180,
+        width: double.infinity,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) {
+          debugPrint("Error loading network image: $error");
+          // If network image fails, try to use default image
+          String? defaultImage = defaultCarImages[booking.carName];
+          if (defaultImage != null) {
+            return Image.asset(
+              defaultImage,
+              height: 180,
+              width: double.infinity,
+              fit: BoxFit.cover,
+              errorBuilder: (context, error, stackTrace) {
+                return _buildPlaceholderImage();
+              },
+            );
+          }
+          return _buildPlaceholderImage();
+        },
+        loadingBuilder: (context, child, loadingProgress) {
+          if (loadingProgress == null) return child;
+          return _buildLoadingImage();
+        },
+      );
+    }
+    // Check if URL starts with assets/ (asset image path)
+    else if (booking.carImageUrl.startsWith('assets/')) {
+      return Image.asset(
+        booking.carImageUrl,
+        height: 180,
+        width: double.infinity,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) {
+          return _buildPlaceholderImage();
+        },
+      );
+    }
+    // Check if we have a default image for this car model
+    else if (defaultCarImages.containsKey(booking.carName)) {
+      return Image.asset(
+        defaultCarImages[booking.carName]!,
+        height: 180,
+        width: double.infinity,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) {
+          return _buildPlaceholderImage();
+        },
+      );
+    }
+    // Fallback to placeholder
+    else {
+      return _buildPlaceholderImage();
+    }
   }
 
   Widget _buildDetailRow(IconData icon, String text, {bool isBold = false}) {
@@ -1018,17 +1170,12 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
     );
   }
 
-  void _showSetReminderDialog(Booking booking) {
-    final bookingStartDateString =
-        DateFormat('EEEE, MMM dd, yyyy').format(booking.startDate);
-    final daysUntilBooking =
-        booking.startDate.difference(DateTime.now()).inDays;
-
-    final reminderOptions = [
-      '1 day before pickup',
-      '3 days before pickup',
-      '1 week before pickup',
-      'Custom reminder...'
+  void _showReminderOptions(Booking booking) {
+    final List<String> reminderOptions = [
+      '30 minutes before',
+      '1 hour before',
+      '3 hours before',
+      '1 day before',
     ];
 
     showDialog(
@@ -1036,42 +1183,15 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
       builder: (context) => AlertDialog(
         title: Row(
           children: [
-            const Icon(Icons.notifications_active, color: primaryGold),
+            const Icon(Icons.alarm, color: primaryGold),
             const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                'Set Booking Reminder',
-                style: GoogleFonts.poppins(
-                  textStyle: const TextStyle(fontWeight: FontWeight.bold),
-                ),
-              ),
-            ),
+            const Expanded(child: Text('Set Reminder')),
           ],
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Your booking is on $bookingStartDateString',
-              style: GoogleFonts.poppins(
-                textStyle: const TextStyle(fontWeight: FontWeight.w500),
-              ),
-            ),
-            Text(
-              daysUntilBooking > 0
-                  ? '($daysUntilBooking days from now)'
-                  : daysUntilBooking == 0
-                      ? '(Today!)'
-                      : '(Past booking)',
-              style: GoogleFonts.poppins(
-                textStyle: TextStyle(
-                  color: daysUntilBooking <= 1 ? Colors.red : Colors.grey[600],
-                  fontSize: 14,
-                ),
-              ),
-            ),
-            const SizedBox(height: 20),
             const Text('When would you like to be reminded?'),
             const SizedBox(height: 8),
             ...reminderOptions.map(
@@ -1082,7 +1202,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
                 title: Text(option),
                 onTap: () {
                   Navigator.pop(context);
-                  _confirmReminderSet(booking, option);
+                  _setReminderNotification(booking, option);
                 },
               ),
             ),
@@ -1098,24 +1218,81 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
     );
   }
 
-  void _confirmReminderSet(Booking booking, String reminderOption) {
-    // In a real app, we would store this reminder in a local notifications system
-    // or send it to a server for push notifications
+  Future<void> _setReminderNotification(
+      Booking booking, String reminderOption) async {
+    // Parse the reminder time from the option
+    int minutesBefore = 60; // Default to 1 hour
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Reminder set for $reminderOption'),
-        backgroundColor: Colors.green,
-        duration: const Duration(seconds: 2),
-        action: SnackBarAction(
-          label: 'View All',
-          textColor: Colors.white,
-          onPressed: () {
-            _showAllRemindersDialog();
-          },
+    if (reminderOption.contains('30 minutes')) {
+      minutesBefore = 30;
+    } else if (reminderOption.contains('1 hour')) {
+      minutesBefore = 60;
+    } else if (reminderOption.contains('3 hours')) {
+      minutesBefore = 180;
+    } else if (reminderOption.contains('1 day')) {
+      minutesBefore = 1440; // 24 hours
+    }
+
+    try {
+      // Generate a unique notification ID based on booking
+      final notificationId = booking.id.hashCode;
+
+      // Use the notification service to schedule the reminder
+      await NotificationService.instance.setRentalReminder(
+        id: notificationId,
+        carName: booking.carName,
+        rentalDateTime: booking.startDate,
+        reminderMinutesBefore: minutesBefore,
+      );
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Reminder set for $reminderOption'),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 2),
+          action: SnackBarAction(
+            label: 'Test Now',
+            textColor: Colors.white,
+            onPressed: () {
+              _showTestNotification(booking.carName);
+            },
+          ),
         ),
-      ),
-    );
+      );
+    } catch (e) {
+      debugPrint('Error setting reminder: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to set reminder: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _showTestNotification(String carName) async {
+    try {
+      await NotificationService.instance.showNotification(
+        id: DateTime.now().millisecondsSinceEpoch.remainder(100000),
+        title: 'Test Notification',
+        body: 'This is a test reminder for your $carName booking',
+      );
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Test notification sent!'),
+          backgroundColor: Colors.blue,
+        ),
+      );
+    } catch (e) {
+      debugPrint('Error sending test notification: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to send test notification: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   void _showAllRemindersDialog() {
@@ -1141,7 +1318,8 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text('Reminder management feature coming soon!'),
+              const Text(
+                  'Active reminders will appear as notifications on your device'),
               const SizedBox(height: 20),
               Container(
                 decoration: BoxDecoration(
@@ -1155,11 +1333,24 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
                     const SizedBox(width: 8),
                     const Expanded(
                       child: Text(
-                        'Set custom reminders for your upcoming bookings to never miss a pickup!',
+                        'Reminders are stored on your device and will trigger even if the app is closed.',
                         style: TextStyle(fontSize: 13),
                       ),
                     ),
                   ],
+                ),
+              ),
+              const SizedBox(height: 20),
+              ElevatedButton.icon(
+                onPressed: () {
+                  _showTestNotification("Test");
+                  Navigator.pop(context);
+                },
+                icon: const Icon(Icons.notifications_active),
+                label: const Text('Send Test Notification'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: primaryGold,
+                  foregroundColor: Colors.black,
                 ),
               ),
             ],
@@ -1175,53 +1366,56 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
     );
   }
 
-  Widget _buildBookingContent(BookingState state) {
-    if (state is BookingLoading) {
-      return const Center(
-        child: CircularProgressIndicator(
-          color: primaryGold,
+  Widget _buildPlaceholderImage() {
+    return Container(
+      height: 180,
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: Colors.grey[200],
+        borderRadius: BorderRadius.only(
+          topLeft: Radius.circular(16),
+          topRight: Radius.circular(16),
         ),
-      );
-    } else if (state is BookingsLoaded) {
-      final bookings = state.bookings;
-      if (bookings.isEmpty) {
-        return _buildEmptyState();
-      } else if (_filteredBookings.isEmpty) {
-        return _buildFilterEmptyState();
-      } else {
-        return _buildBookingsList(_filteredBookings);
-      }
-    } else if (state is BookingError) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.error_outline, size: 64, color: Colors.red[300]),
-            const SizedBox(height: 16),
-            Text(
-              'Error: ${state.message}',
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.red),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.car_rental,
+            size: 60,
+            color: Colors.grey[400],
+          ),
+          SizedBox(height: 8),
+          Text(
+            'No Image Available',
+            style: TextStyle(
+              color: Colors.grey[600],
+              fontWeight: FontWeight.w500,
             ),
-            const SizedBox(height: 24),
-            ElevatedButton.icon(
-              onPressed: _loadBookings,
-              icon: const Icon(Icons.refresh),
-              label: const Text('Retry'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: primaryBlack,
-                foregroundColor: primaryGold,
-              ),
-            ),
-          ],
-        ),
-      );
-    } else {
-      return const Center(
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLoadingImage() {
+    return Container(
+      height: 180,
+      width: double.infinity,
+      color: Colors.grey[200],
+      child: Center(
         child: CircularProgressIndicator(
-          color: primaryGold,
+          valueColor: AlwaysStoppedAnimation<Color>(primaryGold),
         ),
-      );
+      ),
+    );
+  }
+
+  // Create a helper method to refresh bookings
+  void _refreshBookings() {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      context.read<BookingBloc>().add(FetchBookings(userId: user.uid));
     }
   }
 }

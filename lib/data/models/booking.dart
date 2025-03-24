@@ -33,13 +33,17 @@ class Booking {
   factory Booking.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
 
+    // Default image if none is provided
+    String imageUrl =
+        data['carImageUrl'] ?? 'assets/images/car_placeholder.png';
+
     return Booking(
       id: doc.id,
       userId: data['userId'] ?? '',
       carId: data['carId'] ?? '',
       carName: data['carName'] ?? '',
       carModel: data['carModel'] ?? '',
-      carImageUrl: data['carImageUrl'] ?? '',
+      carImageUrl: imageUrl,
       startDate: (data['startDate'] as Timestamp).toDate(),
       endDate: (data['endDate'] as Timestamp).toDate(),
       totalPrice: (data['totalPrice'] ?? 0).toDouble(),

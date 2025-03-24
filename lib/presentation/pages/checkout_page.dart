@@ -357,19 +357,25 @@ class _CheckoutPageState extends State<CheckoutPage> {
         actions: [
           TextButton(
             onPressed: () {
-              // Navigate to My Bookings screen
-              Navigator.of(context).pushAndRemoveUntil(
+              // Close the dialog first
+              Navigator.of(context).pop();
+              // Navigate to My Bookings screen but keep the stack
+              Navigator.push(
+                context,
                 MaterialPageRoute(
                   builder: (context) => MyBookingsScreen(),
                 ),
-                (route) => false,
               );
             },
             child: const Text('View My Bookings'),
           ),
           TextButton(
             onPressed: () {
-              Navigator.of(context).popUntil((route) => route.isFirst);
+              // Close the dialog
+              Navigator.of(context).pop();
+              // Go back to car listing
+              Navigator.of(context).pop();
+              Navigator.of(context).pop();
             },
             child: const Text('Back to Home'),
           ),

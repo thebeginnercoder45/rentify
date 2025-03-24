@@ -16,14 +16,41 @@ class FirebaseBookingDataSource {
 
   // READ - Get bookings by user ID
   Future<List<Booking>> getBookingsByUserId(String userId) async {
-    var snapshot = await firestore
-        .collection(collectionName)
-        .where('userId', isEqualTo: userId)
-        .orderBy('createdAt', descending: true)
-        .get();
-    return snapshot.docs
-        .map((doc) => Booking.fromJson({...doc.data(), 'id': doc.id}))
-        .toList();
+    try {
+      print("DEBUG: Getting bookings for user ID: $userId");
+
+      var snapshot = await firestore
+          .collection(collectionName)
+          .where('userId', isEqualTo: userId)
+          .orderBy('createdAt', descending: true)
+          .get()
+          .timeout(Duration(seconds: 15)); // Increase timeout
+
+      print("DEBUG: Found ${snapshot.docs.length} bookings");
+
+      if (snapshot.docs.isEmpty) {
+        print("DEBUG: No bookings found for user $userId");
+        return []; // Return empty list, not an error
+      }
+
+      List<Booking> bookings = [];
+      for (var doc in snapshot.docs) {
+        try {
+          final booking = Booking.fromJson({...doc.data(), 'id': doc.id});
+          bookings.add(booking);
+        } catch (e) {
+          print("DEBUG: Error parsing booking ${doc.id}: $e");
+          // Continue with next booking instead of failing entire request
+        }
+      }
+
+      print("DEBUG: Successfully parsed ${bookings.length} bookings");
+      return bookings;
+    } catch (e) {
+      print("DEBUG: Error getting bookings by user ID: $e");
+      // Return empty list instead of throwing to prevent UI errors
+      return [];
+    }
   }
 
   // READ - Get bookings by car ID

@@ -14,6 +14,9 @@ import 'package:rentapp/presentation/bloc/booking_state.dart';
 import 'package:rentapp/presentation/pages/booking_details_page.dart';
 import 'package:rentapp/presentation/pages/admin/admin_dashboard.dart';
 import 'package:rentapp/data/models/app_user_simple.dart' as app_model;
+import 'package:rentapp/presentation/pages/edit_profile_page.dart';
+import 'package:rentapp/presentation/pages/payment_methods_page.dart';
+import 'package:rentapp/utils/notification_service.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({Key? key}) : super(key: key);
@@ -78,19 +81,19 @@ class _ProfilePageState extends State<ProfilePage> {
 
     switch (index) {
       case 0:
-        // Navigate back to home/cars screen
-        Navigator.pop(context);
+        // Navigate to Home/Cars screen
+        Navigator.pushReplacementNamed(context, '/home');
         break;
       case 1:
         // Navigate to My Bookings
-        Navigator.pushReplacement(
+        Navigator.push(
           context,
           MaterialPageRoute(builder: (context) => const MyBookingsScreen()),
         );
         break;
       case 2:
-        // Notifications - Show coming soon
-        _showComingSoonDialog('Notifications');
+        // Show notification dialog instead of coming soon
+        _showNotificationsDialog();
         break;
       case 3:
         // We're already on the profile screen
@@ -98,16 +101,65 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
-  void _showComingSoonDialog(String featureName) {
+  void _showNotificationsDialog() {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text(
-          'Coming Soon',
-          style: TextStyle(fontWeight: FontWeight.bold),
+        title: Row(
+          children: const [
+            Icon(Icons.notifications_active, color: primaryGold),
+            SizedBox(width: 8),
+            Text(
+              'Notifications Settings',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ],
         ),
-        content: Text(
-          '$featureName feature will be available soon!',
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Manage your notification preferences:'),
+            const SizedBox(height: 20),
+            ListTile(
+              leading:
+                  const Icon(Icons.notifications_active, color: primaryGold),
+              title: const Text('Send Test Notification'),
+              subtitle: const Text('Send an immediate test notification'),
+              onTap: () {
+                _sendTestNotification();
+                Navigator.pop(context);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.clear_all, color: primaryGold),
+              title: const Text('Clear All Notifications'),
+              subtitle: const Text('Cancel all scheduled notifications'),
+              onTap: () {
+                _clearAllNotifications();
+                Navigator.pop(context);
+              },
+            ),
+            const SizedBox(height: 10),
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.grey[200],
+                borderRadius: BorderRadius.circular(8),
+              ),
+              padding: const EdgeInsets.all(12),
+              child: const Row(
+                children: [
+                  Icon(Icons.info_outline, color: primaryGold),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Notifications for booking reminders and offers will appear even when the app is closed.',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
         actions: [
           TextButton(
@@ -115,11 +167,57 @@ class _ProfilePageState extends State<ProfilePage> {
             style: TextButton.styleFrom(
               foregroundColor: primaryGold,
             ),
-            child: const Text('OK'),
+            child: const Text('Close'),
           ),
         ],
       ),
     );
+  }
+
+  Future<void> _sendTestNotification() async {
+    try {
+      await NotificationService.instance.showNotification(
+        id: 101,
+        title: 'Hello from RentApp!',
+        body: 'Your notification settings are working correctly.',
+      );
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Test notification sent!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      debugPrint('Error sending notification: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to send notification: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _clearAllNotifications() async {
+    try {
+      await NotificationService.instance.cancelAllNotifications();
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('All notifications cleared!'),
+          backgroundColor: Colors.blue,
+        ),
+      );
+    } catch (e) {
+      debugPrint('Error clearing notifications: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to clear notifications: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   void _signInWithEmailAndPassword() {
@@ -370,9 +468,11 @@ class _ProfilePageState extends State<ProfilePage> {
                     subtitle: const Text('Update your personal information'),
                     trailing: const Icon(Icons.chevron_right),
                     onTap: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                            content: Text('Edit Profile coming soon!')),
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const EditProfilePage(),
+                        ),
                       );
                     },
                   ),
@@ -406,9 +506,11 @@ class _ProfilePageState extends State<ProfilePage> {
                   subtitle: const Text('Manage your payment options'),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                          content: Text('Payment Methods coming soon!')),
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const PaymentMethodsPage(),
+                      ),
                     );
                   },
                 ),
@@ -423,10 +525,7 @@ class _ProfilePageState extends State<ProfilePage> {
                   subtitle: const Text('Manage your notification preferences'),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                          content: Text('Notifications coming soon!')),
-                    );
+                    _showNotificationsDialog();
                   },
                 ),
 

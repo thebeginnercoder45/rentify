@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:rentapp/data/models/booking.dart';
+import 'package:rentapp/data/models/activity_log.dart';
 
 /// Repository for managing booking data in Firestore.
 class BookingRepository {
@@ -19,7 +20,18 @@ class BookingRepository {
   Future<String?> createBooking(Booking booking) async {
     try {
       final docRef = await _bookingsRef.add(booking.toJson());
-      return docRef.id;
+      final bookingId = docRef.id;
+
+      // Log booking activity
+      await ActivityLogger.seedActivityLog(
+        type: ActivityType.bookingCreated,
+        title: 'New Booking Created',
+        description: 'Booking #$bookingId was created',
+        userId: booking.userId,
+        relatedId: bookingId,
+      );
+
+      return bookingId;
     } catch (e) {
       debugPrint('Error creating booking: $e');
       return null;
@@ -60,10 +72,29 @@ class BookingRepository {
     }
   }
 
-  /// Updates the status of a booking.
-  Future<bool> updateBookingStatus(String id, String status) async {
+  /// Updates a booking status in Firestore.
+  Future<bool> updateBookingStatus(String bookingId, String status) async {
     try {
-      await _bookingsRef.doc(id).update({'status': status});
+      await _bookingsRef.doc(bookingId).update({'status': status});
+
+      // Get the booking to include user ID in activity log
+      final bookingDoc = await _bookingsRef.doc(bookingId).get();
+      final booking = Booking.fromJson(
+          {...bookingDoc.data() as Map<String, dynamic>, 'id': bookingId});
+
+      // Log appropriate activity based on status
+      if (status == 'confirmed') {
+        await ActivityLogger.logBookingConfirmed(bookingId, booking.userId);
+      } else if (status == 'cancelled') {
+        await ActivityLogger.seedActivityLog(
+          type: ActivityType.bookingCancelled,
+          title: 'Booking Cancelled',
+          description: 'Booking #$bookingId was cancelled',
+          userId: booking.userId,
+          relatedId: bookingId,
+        );
+      }
+
       return true;
     } catch (e) {
       debugPrint('Error updating booking status: $e');

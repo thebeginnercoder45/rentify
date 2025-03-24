@@ -25,7 +25,10 @@ class _MapsDetailsPageState extends State<MapsDetailsPage> {
   TimeOfDay? _endTime;
 
   // Default location (can be replaced with actual car location)
-  final LatLng _carLocation = LatLng(37.7749, -122.4194);
+  final LatLng _carLocation = LatLng(19.0760, 72.8777); // Mumbai coordinates
+
+  // Map controller
+  final MapController _mapController = MapController();
 
   // Modern luxury theme colors
   static const Color primaryColor = Color(0xFF1E1E1E);
@@ -34,6 +37,12 @@ class _MapsDetailsPageState extends State<MapsDetailsPage> {
   static const Color cardColor = Colors.white;
   static const Color textPrimaryColor = Color(0xFF1E1E1E);
   static const Color textSecondaryColor = Color(0xFF757575);
+
+  @override
+  void initState() {
+    super.initState();
+    // No need to initialize markers here with OpenStreetMap
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -46,7 +55,7 @@ class _MapsDetailsPageState extends State<MapsDetailsPage> {
         leading: Container(
           margin: const EdgeInsets.all(8),
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.8),
+            color: Colors.white.withAlpha(204),
             shape: BoxShape.circle,
           ),
           child: IconButton(
@@ -75,101 +84,7 @@ class _MapsDetailsPageState extends State<MapsDetailsPage> {
           // Map Section
           Container(
             height: MediaQuery.of(context).size.height * 0.4,
-            child: Stack(
-              children: [
-                FlutterMap(
-                  options: MapOptions(
-                    initialCenter: _carLocation,
-                    initialZoom: 13,
-                  ),
-                  children: [
-                    TileLayer(
-                      urlTemplate:
-                          "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-                      subdomains: const ['a', 'b', 'c'],
-                    ),
-                    MarkerLayer(
-                      markers: [
-                        Marker(
-                          point: _carLocation,
-                          width: 120,
-                          height: 120,
-                          child: Column(
-                            children: [
-                              Container(
-                                padding: EdgeInsets.all(10),
-                                decoration: BoxDecoration(
-                                  color: accentColor,
-                                  shape: BoxShape.circle,
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black.withOpacity(0.2),
-                                      blurRadius: 6,
-                                      offset: Offset(0, 3),
-                                    ),
-                                  ],
-                                ),
-                                child: Icon(
-                                  Icons.directions_car,
-                                  color: Colors.white,
-                                  size: 30,
-                                ),
-                              ),
-                              Container(
-                                margin: EdgeInsets.only(top: 6),
-                                padding: EdgeInsets.symmetric(
-                                    horizontal: 10, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: primaryColor,
-                                  borderRadius: BorderRadius.circular(20),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black.withOpacity(0.2),
-                                      blurRadius: 4,
-                                      offset: Offset(0, 2),
-                                    ),
-                                  ],
-                                ),
-                                child: Text(
-                                  'Available',
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-                Positioned(
-                  bottom: 20,
-                  right: 20,
-                  child: Container(
-                    padding: EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.2),
-                          blurRadius: 6,
-                          offset: Offset(0, 3),
-                        ),
-                      ],
-                    ),
-                    child: Icon(
-                      Icons.my_location,
-                      color: primaryColor,
-                    ),
-                  ),
-                ),
-              ],
-            ),
+            child: _buildMapSection(),
           ),
 
           // Booking Form
@@ -197,7 +112,10 @@ class _MapsDetailsPageState extends State<MapsDetailsPage> {
                             borderRadius: BorderRadius.circular(12),
                             image: DecorationImage(
                               image: widget.car.imageUrl != null
-                                  ? AssetImage(widget.car.imageUrl!)
+                                  ? widget.car.imageUrl!.startsWith('http')
+                                      ? NetworkImage(widget.car.imageUrl!)
+                                      : AssetImage(widget.car.imageUrl!)
+                                          as ImageProvider
                                   : AssetImage('assets/car_image.png'),
                               fit: BoxFit.cover,
                             ),
@@ -407,6 +325,146 @@ class _MapsDetailsPageState extends State<MapsDetailsPage> {
         ],
       ),
     );
+  }
+
+  Widget _buildMapSection() {
+    try {
+      return Stack(
+        children: [
+          FlutterMap(
+            mapController: _mapController,
+            options: MapOptions(
+              initialCenter: _carLocation,
+              initialZoom: 13,
+              interactionOptions: InteractionOptions(
+                flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
+              ),
+            ),
+            children: [
+              TileLayer(
+                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                userAgentPackageName: 'com.rentapp.app',
+              ),
+              MarkerLayer(
+                markers: [
+                  Marker(
+                    width: 80.0,
+                    height: 80.0,
+                    point: _carLocation,
+                    child: Column(
+                      children: [
+                        Container(
+                          decoration: BoxDecoration(
+                            color: accentColor,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            Icons.directions_car,
+                            color: Colors.white,
+                          ),
+                          padding: EdgeInsets.all(8),
+                        ),
+                        Container(
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(4),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black26,
+                                blurRadius: 4,
+                              ),
+                            ],
+                          ),
+                          padding:
+                              EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                          margin: EdgeInsets.only(top: 4),
+                          child: Text(
+                            '${widget.car.brand} ${widget.car.model}',
+                            style: TextStyle(fontSize: 10),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          Positioned(
+            bottom: 20,
+            right: 20,
+            child: Container(
+              padding: EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.2),
+                    blurRadius: 6,
+                    offset: Offset(0, 3),
+                  ),
+                ],
+              ),
+              child: GestureDetector(
+                onTap: () {
+                  _mapController.move(_carLocation, 15);
+                },
+                child: Icon(
+                  Icons.my_location,
+                  color: primaryColor,
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
+    } catch (e) {
+      print("Map rendering error: $e");
+      // Fallback UI when map rendering fails
+      return Container(
+        color: Colors.grey[200],
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.map_outlined,
+                size: 70,
+                color: Colors.grey[400],
+              ),
+              SizedBox(height: 20),
+              Text(
+                'Map not available',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.grey[700],
+                ),
+              ),
+              SizedBox(height: 8),
+              Padding(
+                padding: EdgeInsets.symmetric(horizontal: 40),
+                child: Text(
+                  'Pickup location: Mumbai, India',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.grey[600]),
+                ),
+              ),
+              SizedBox(height: 20),
+              Text(
+                '${widget.car.brand} ${widget.car.model}',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: accentColor,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
   }
 
   Widget _buildDatePickerField(
@@ -781,123 +839,6 @@ class _MapsDetailsPageState extends State<MapsDetailsPage> {
         _endDate != null &&
         _startTime != null &&
         _endTime != null;
-  }
-
-  void _showBookingSuccessDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-          ),
-          title: Column(
-            children: [
-              const Icon(
-                Icons.check_circle,
-                color: Colors.green,
-                size: 60,
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'Booking Confirmed!',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                ),
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'Your booking for ${widget.car.brand} ${widget.car.model} has been confirmed.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: textSecondaryColor,
-                ),
-              ),
-              const SizedBox(height: 20),
-              Container(
-                padding: const EdgeInsets.all(15),
-                decoration: BoxDecoration(
-                  color: Colors.grey[100],
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Column(
-                  children: [
-                    _buildConfirmationDetail('Start',
-                        '${DateFormat('dd MMM, yyyy').format(_startDate!)} at ${_formatTimeOfDay(_startTime!)}'),
-                    const SizedBox(height: 10),
-                    _buildConfirmationDetail('End',
-                        '${DateFormat('dd MMM, yyyy').format(_endDate!)} at ${_formatTimeOfDay(_endTime!)}'),
-                    const SizedBox(height: 10),
-                    _buildConfirmationDetail('Booking ID',
-                        '#${DateTime.now().millisecondsSinceEpoch.toString().substring(5, 13)}'),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-                Navigator.of(context).pop(); // Go back to previous screen
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => MyBookingsScreen(),
-                  ),
-                );
-              },
-              child: Text(
-                'View My Bookings',
-                style: TextStyle(
-                  color: primaryColor,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: primaryColor,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-              child: Text('Close'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  Widget _buildConfirmationDetail(String label, String value) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(
-          label,
-          style: TextStyle(
-            color: textSecondaryColor,
-          ),
-        ),
-        Text(
-          value,
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-            color: textPrimaryColor,
-          ),
-        ),
-      ],
-    );
   }
 
   // Helper method to calculate the total price
